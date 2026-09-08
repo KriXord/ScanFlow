@@ -1,70 +1,81 @@
 # ScanFlow
 
-ScanFlow is a research framework for reasoning-guided visual representation learning in multimodal large language models. It augments static visual tokens with a recurrent latent reasoning trajectory and uses that reasoning to modify the visual representation before it is passed to the downstream language model.
+ScanFlow is a research framework for integrating human scanpaths into the latent visual reasoning process of multimodal large language models. Its central idea is that human visual attention is not merely a static saliency distribution: it is a temporally ordered process in which successive fixations reflect an evolving reasoning trajectory.
+
+ScanFlow therefore learns question-conditioned latent states that progress through a scanpath over time. Each state represents accumulated visual reasoning and preserves information from earlier steps, while supervision encourages the model's internal visual attention to follow the spatial and temporal structure of human scanpaths.
 
 This repository is currently a draft research release. Model weights and datasets are not included.
 
 ## Motivation
 
-Providing a multimodal language model with both unchanged visual tokens and reasoning tokens can create a **latent-bypass problem**: the language model may answer directly from the original visual representation and ignore the reasoning trajectory. Removing the original visual tokens avoids that bypass, but can discard important global visual context.
+Most saliency-guided vision-language systems represent human attention as a single spatial map. This can identify visually important regions, but it removes the temporal ordering that distinguishes a scanpath from static saliency.
 
-ScanFlow addresses this trade-off by preserving the original visual representation while applying a spatially varying, question-conditioned reasoning update.
+For visual question answering, order matters. A person may first locate the chart title, then identify the relevant axis or legend, and finally inspect the marks needed to answer the question. Collapsing these fixations into one map preserves *where* people looked but discards *when* and *in what reasoning sequence* they looked there.
+
+ScanFlow investigates whether this ordered behavior can be internalized as latent visual reasoning. Its goal is to make temporal order correspond to actual computation: later reasoning states should be generated from the visual evidence and reasoning history accumulated by earlier states, rather than merely occupying later positions in a parallel sequence.
+
+## Core challenges
+
+### Temporal latent collapse
+
+An early failure mode was temporal collapse. Successive latent states could produce nearly identical attention distributions:
+
+```text
+A_1 ≈ A_2 ≈ ... ≈ A_T
+```
+
+The resulting maps could still appear spatially plausible, but they represented repeated saliency rather than a changing scanpath. The model learned broadly *where* useful information was located without learning *when* different regions should be examined.
+
+### Shortcut learning
+
+ScanFlow also exposed architectural shortcuts. Learnable initialization, auxiliary fixation decoders, or jointly adapting modules could reduce the supervision loss without requiring the recurrent hidden states to carry meaningful temporal information.
+
+In that case, the model could predict average or question-type-specific saliency patterns without using the intended temporal reasoning path. This motivated stricter separation between the recurrent reasoning process and the components used to supervise or evaluate it.
 
 ## Architecture
 
 Let:
 
-- $V = \{v_i\}_{i=1}^{N}$ denote the original visual tokens;
-- $Q$ denote the question-token representation; and
-- $H = \{h_t\}_{t=1}^{T}$ denote the recurrent latent reasoning trajectory.
+- $V = \{v_i\}_{i=1}^{N}$ denote the visual-token sequence;
+- $Q$ denote the question-token representation;
+- $H = \{h_t\}_{t=1}^{T}$ denote the latent reasoning trajectory; and
+- $S_t$ denote the human fixation target at scanpath step $t$.
 
-The reasoning trajectory is generated against an immutable copy of $V$. After all recurrent states have been produced, ScanFlow computes a one-shot reasoning residual:
-
-```text
-R = CrossAttention(LN(V), LN(H), LN(H))
-```
-
-A tokenwise, question-conditioned intensity controller determines how strongly each visual location is updated:
+ScanFlow generates reasoning states recurrently:
 
 ```text
-lambda_i(V, Q) = sigmoid(F_I([LN(v_i), pool(LN(V)), pool(LN(Q))]))
+h_t = G(V, Q, h_1, ..., h_(t-1))
 ```
 
-The final visual representation is:
+Each new state is conditioned on the original multimodal context and the preceding reasoning history. This makes the temporal index an explicit computational dependency rather than only a positional label.
+
+The model's internal visual attention at each step is then compared with the corresponding ordered human fixation target:
 
 ```text
-V'_i = V_i + lambda_i(V, Q) R_i
+A_t = VisualAttention(h_t, V)
+L_scanpath = sum_t AlignmentLoss(A_t, S_t)
 ```
 
-The downstream language model receives:
+The fixation maps are supervision and interpretation targets for the latent trajectory. The hidden states themselves are not intended to become isolated fixation embeddings; each state retains accumulated context and reasoning history.
 
-```text
-X_LLM = [V'; H]
-```
+## Design progression
 
-This gives ScanFlow two forms of adaptivity:
-
-- **Spatial adaptivity:** each visual token receives its own residual and intensity value.
-- **Reasoning-intensity adaptivity:** the update strength depends on the image and question.
-
-The visual update is computed only after the complete reasoning sequence is generated. It therefore does not alter the recurrent trajectory $H$ and does not introduce a temporal visual-memory update.
-
-## Architecture progression
-
-| Variant | Downstream representation | Role in this repository |
+| Stage | Temporal representation | Main limitation or contribution |
 | --- | --- | --- |
-| Plan-1 Parallel | $[V;H]$ | Historical baseline preserved under `baselines/plan1_parallel/` |
-| ScanFlow | $[V + \lambda_i(V,Q)R;H]$ | Final architecture in this repository |
-| ScanFlow Pro | $[M^T;H]$ with stepwise perception updates | Separate temporal architecture; not included here |
+| Static saliency | One spatial distribution | Preserves important locations but discards fixation order |
+| Plan-1 Parallel | Ordered latent positions generated together | Represents order, but does not make later states depend on earlier computation |
+| Recurrent ScanFlow | Stepwise latent generation with causal history | Makes temporal order part of the reasoning computation |
+| Direct attention supervision | Internal visual attention aligned with ordered fixations | Reduces reliance on a separate learnable fixation decoder |
+| Frozen diagnostic components and ablations | Supervision and evaluation isolated from the reasoning path | Exposes shortcut learning and tests whether temporal information is genuinely carried by the latent states |
 
-Plan-1 Parallel is retained to document the architectural progression. It is not the active ScanFlow runtime.
+The historical Plan-1 Parallel implementation is retained under `baselines/plan1_parallel/` to document the distinction between an ordered representation and an ordered computation. It is not the active ScanFlow architecture.
 
 ## Repository layout
 
 ```text
 .
 ├── modelings/scanflow/             # Hugging Face and training-side ScanFlow model code
-├── baselines/plan1_parallel/       # Earlier Plan-1 Parallel modeling and vLLM code
+├── baselines/plan1_parallel/       # Earlier parallel baseline
 ├── DeepSeek-OCR-2/                 # Vendored and modified DeepSeek-OCR2 runtime
 ├── ms-swift/                       # Vendored and modified MS-Swift training framework
 ├── dataloader.py                   # Evaluation dataset loading
@@ -80,9 +91,7 @@ Plan-1 Parallel is retained to document the architectural progression. It is not
 └── THIRD_PARTY_NOTICES.md
 ```
 
-The filenames `scanflow_pro_deepencoder.py` and `scanflow_pro_deepseek_ocr2.py`, along with several `SCANFLOW_PRO_*` environment variables, are retained as historical compatibility identifiers. In this repository, those files implement the final ScanFlow architecture described above. The temporal ScanFlow Pro architecture is not included.
-
-`SCANFLOW_PRO_V4=1` is retained in some scripts because the patched MS-Swift template uses that legacy flag to reserve $N+T$ image-token positions. It does not enable the V4 visual-memory architecture.
+Some filenames and environment variables retain historical development names such as `scanflow_pro_*` and `SCANFLOW_V2_*`. They are kept for checkpoint and runtime compatibility and do not change the scope of this repository: this release documents ScanFlow.
 
 ## Installation
 
@@ -111,72 +120,57 @@ Alliance/Compute Canada users should follow the module and wheelhouse guidance i
 
 ## Data
 
-Datasets are intentionally excluded from version control. The current loaders support:
+Datasets are intentionally excluded from version control. The current evaluation workflow supports:
 
 - ChartQA
 - ChartQAPro
-- ChartBench
-- SalChartQA, including ordered scanpath supervision
+- SalChartQA
+
+SalChartQA provides the ordered fixation annotations used to supervise and analyze scanpath behavior. ChartQA and ChartQAPro are used to evaluate downstream visual question answering and generalization.
 
 Place datasets under `datasets/`, or provide the dataset root through the applicable command-line option or environment variable. Users are responsible for obtaining each dataset under its original license and terms.
 
 ## Training
 
-ScanFlow representation training starts from the trained recurrent Plan-1 representation and initializes only the new residual cross-attention and dynamic-intensity modules. The intended reset policy is:
+The checked-in training job records the research configuration used to train the released ScanFlow representation. Before submitting `train_scanflowpro_v2.slurm`, configure the cluster account, environment, initialization checkpoint, dataset, and output paths for the target system.
 
-```bash
-export SCANFLOW_RESET_NEW_PARAMS=0
-export SCANFLOW_V2_RESET_NEW_PARAMS=1
-export SCANFLOW_V2_INITIAL_INTENSITY=0.001
-```
-
-This preserves the recurrent reasoning path while initializing the new intensity head so that $\lambda_i \approx 0.001$.
-
-Before submitting `train_scanflowpro_v2.slurm`, configure the cluster account, environment, input model, dataset, and output paths. The checked-in Slurm file records the research configuration used for this draft release.
+The implementation preserves reset boundaries between previously trained recurrent components and newly introduced experiment-specific modules. Consult the comments and preflight checks in the Slurm script before starting or resuming a run.
 
 ## Evaluation and analysis
 
-`run_scanflowpro_v2_evaluation.py` supports benchmark evaluation and two architecture-focused analyses.
+ScanFlow evaluation considers both downstream task performance and whether the latent trajectory exhibits meaningful temporal visual behavior.
 
-### Dynamic reasoning-intensity distribution
+### Downstream question answering
 
-The evaluator records the tokenwise $\lambda_i(V,Q)$ distribution for each sample and aggregates its statistics by benchmark. This analysis tests whether harder question sets elicit stronger reasoning-conditioned perception updates.
+The evaluation workflow produces per-sample predictions for ChartQA, ChartQAPro, and SalChartQA. Benchmarks can be evaluated independently by passing one dataset after `--datasets`.
 
-### Reasoning-modified perception
+### Temporal scanpath behavior
 
-The evaluator can capture:
+The central behavioral analysis examines:
 
-- original visual tokens $V$;
-- reasoning residual $R$;
-- intensity map $\lambda_i(V,Q)$;
-- effective update $\lambda_iR_i$;
-- modified visual tokens $V'$; and
-- projected original and modified tokens received by the language model.
+- stepwise visual-attention distributions;
+- alignment with ordered human fixation targets;
+- changes in attended regions across reasoning steps;
+- temporal diversity versus repeated-map collapse; and
+- differences in scanpath behavior across questions and benchmarks.
 
-Supported visualizations include:
-
-- update-magnitude heatmaps;
-- relative-$L_2$ change maps;
-- cosine-direction change maps;
-- shared-PCA pseudo-images; and
-- spatial overlays on the original chart.
+These analyses distinguish a genuinely evolving latent trajectory from a model that repeatedly predicts a static saliency pattern.
 
 Example single-dataset evaluation:
 
 ```bash
 python run_scanflowpro_v2_evaluation.py \
-  --datasets ChartQA \
+  --datasets SalChartQA \
   --model-name /path/to/scanflow-model \
   --datasets-root /path/to/datasets \
-  --output-dir eval_outputs/chartqa \
-  --v2-analysis
+  --output-dir eval_outputs/salchartqa
 ```
 
-To evaluate another benchmark independently, keep only that benchmark after `--datasets`.
+Some evaluation entry points retain historical filenames for compatibility. Their names should not be interpreted as defining a separate project scope.
 
 ## Model weights
 
-Model checkpoints, optimizer state, and trainer state are excluded because they are multi-gigabyte artifacts and are not appropriate for ordinary Git storage. A model-hosting or archival link can be added here when weights are released.
+Model checkpoints, optimizer state, and trainer state are excluded from Git because they are multi-gigabyte artifacts. A Hugging Face model link will be added when the inference checkpoint is published.
 
 ## Acknowledgements and licensing
 
@@ -184,4 +178,4 @@ ScanFlow builds on CueFlow, DeepSeek-OCR2, MS-Swift, Hugging Face Transformers a
 
 ## Status
 
-This repository currently represents a draft code release. Paths, installation automation, model hosting, and final experimental results may be refined before an archival release.
+This repository currently represents a draft ScanFlow code release. Paths, installation automation, model hosting, and final experimental results may be refined before an archival release.
