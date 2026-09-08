@@ -20,27 +20,27 @@ Let:
 
 The reasoning trajectory is generated against an immutable copy of $V$. After all recurrent states have been produced, ScanFlow computes a one-shot reasoning residual:
 
-$$
-R = \operatorname{CrossAttention}(\operatorname{LN}(V), \operatorname{LN}(H), \operatorname{LN}(H)).
-$$
+```text
+R = CrossAttention(LN(V), LN(H), LN(H))
+```
 
 A tokenwise, question-conditioned intensity controller determines how strongly each visual location is updated:
 
-$$
-\lambda_i(V,Q) = \sigma\!\left(F_I\!\left[\operatorname{LN}(v_i),\operatorname{pool}(\operatorname{LN}(V)),\operatorname{pool}(\operatorname{LN}(Q))\right]\right).
-$$
+```text
+lambda_i(V, Q) = sigmoid(F_I([LN(v_i), pool(LN(V)), pool(LN(Q))]))
+```
 
 The final visual representation is:
 
-$$
-V'_i = V_i + \lambda_i(V,Q)R_i.
-$$
+```text
+V'_i = V_i + lambda_i(V, Q) R_i
+```
 
 The downstream language model receives:
 
-$$
-X_{\mathrm{LLM}} = [V';H].
-$$
+```text
+X_LLM = [V'; H]
+```
 
 This gives ScanFlow two forms of adaptivity:
 
