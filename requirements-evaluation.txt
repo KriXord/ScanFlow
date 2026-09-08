@@ -1,0 +1,22 @@
+# Reference vLLM evaluation and representation-analysis stack.
+# Keep this environment separate from requirements-training.txt.
+
+torch>=2.6,<2.7
+vllm==0.8.5.post1
+transformers>=4.46.3,<5
+tokenizers>=0.20.3,<0.23
+datasets>=3.1,<5
+accelerate>=1.1,<2
+safetensors>=0.4,<1
+einops==0.8.2
+addict==2.4.0
+easydict==1.13
+numpy>=1.26,<2
+pandas>=2,<3
+matplotlib>=3.8,<4
+scikit-learn>=1.5,<2
+Pillow>=10,<12
+tqdm>=4.66,<5
+
+# OpenCV and PyArrow are loaded as cluster modules in the provided Slurm job.
+# For a non-cluster environment, install compatible versions separately.

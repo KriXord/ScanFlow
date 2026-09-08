@@ -1,0 +1,24 @@
+# Reference training stack for the ScanFlow draft release.
+# Create this environment separately from the vLLM evaluation environment.
+# On Alliance/Compute Canada, use the provided modules/wheelhouse where possible.
+
+torch==2.6.0
+transformers==4.46.3
+tokenizers==0.20.3
+peft==0.15.2
+accelerate>=1.1,<2
+datasets>=3.1,<5
+safetensors>=0.4,<1
+einops==0.8.2
+addict==2.4.0
+easydict==1.13
+numpy>=1.26,<2
+pandas>=2,<3
+matplotlib>=3.8,<4
+Pillow>=10,<12
+tqdm>=4.66,<5
+
+# OpenCV and PyArrow are loaded as cluster modules in the provided Slurm job.
+# For a non-cluster environment, install compatible versions separately.
+# The modified MS-Swift source is vendored under ./ms-swift and is added to
+# PYTHONPATH by the training job.

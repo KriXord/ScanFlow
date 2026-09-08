@@ -1,0 +1,57 @@
+# Python bytecode and caches
+__pycache__/
+*.py[cod]
+*.so
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.matplotlib_cache/
+
+# Local Python environments
+.venv/
+venv/
+env/
+
+# Local environment-variable files
+.env
+.env.*
+!.env.example
+
+# Packaging and build output
+build/
+dist/
+*.egg-info/
+
+# Model weights and training state
+*.safetensors
+*.bin
+*.pt
+*.pth
+model.safetensors.index.json
+optimizer.pt
+scheduler.pt
+training_args.bin
+trainer_state.json
+rng_state_*.pth
+
+# Generated data, checkpoints, caches, and logs
+output/
+eval_outputs/
+logs/
+hf_cache/
+datasets/
+*.log
+slurm-*.out
+slurm-*.err
+
+# Generated analysis artifacts
+ablations_full_sal/
+ablations_random/
+ablations_reverse/
+*_visualizations/
+
+# Editors and operating systems
+.DS_Store
+.vscode/
+.idea/
+*~
