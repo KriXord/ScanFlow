@@ -1,79 +1,70 @@
-ScanFlow
+# ScanFlow
 
-ScanFlow is a research framework for reasoning-guided visual representation learning in multimodal language models. It augments static visual tokens with recurrent latent reasoning states and uses those states to modify the visual representation before it is passed to the downstream language model.
+ScanFlow is a research framework for reasoning-guided visual representation learning in multimodal large language models. It augments static visual tokens with a recurrent latent reasoning trajectory and uses that reasoning to modify the visual representation before it is passed to the downstream language model.
 
-This repository is a draft research release. Model weights and datasets are not included.
+This repository is currently a draft research release. Model weights and datasets are not included.
 
-Motivation
+## Motivation
 
-Providing an MLLM with both unchanged visual tokens and reasoning tokens can create a latent-bypass problem: the language model may answer directly from the original visual representation and ignore the reasoning trajectory. Removing the original visual tokens avoids that bypass, but can discard global context.
+Providing a multimodal language model with both unchanged visual tokens and reasoning tokens can create a **latent-bypass problem**: the language model may answer directly from the original visual representation and ignore the reasoning trajectory. Removing the original visual tokens avoids that bypass, but can discard important global visual context.
 
-ScanFlow addresses this trade-off by preserving the original visual representation while applying a question-conditioned reasoning update to it.
+ScanFlow addresses this trade-off by preserving the original visual representation while applying a spatially varying, question-conditioned reasoning update.
 
-Architecture
+## Architecture
 
-Let
+Let:
 
-V = {v_i}_{i=1}^N denote the original visual tokens;
+- $V = \{v_i\}_{i=1}^{N}$ denote the original visual tokens;
+- $Q$ denote the question-token representation; and
+- $H = \{h_t\}_{t=1}^{T}$ denote the recurrent latent reasoning trajectory.
 
-Q denote the question-token representation; and
+The reasoning trajectory is generated against an immutable copy of $V$. After all recurrent states have been produced, ScanFlow computes a one-shot reasoning residual:
 
-H = {h_t}_{t=1}^T denote the recurrent latent reasoning trajectory.
-
-The reasoning trajectory is first generated against an immutable copy of V. After all recurrent states have been produced, ScanFlow computes a one-shot reasoning residual:
-
-R = CrossAttention(LN(V), LN(H), LN(H)).
+$$
+R = \operatorname{CrossAttention}(\operatorname{LN}(V), \operatorname{LN}(H), \operatorname{LN}(H)).
+$$
 
 A tokenwise, question-conditioned intensity controller determines how strongly each visual location is updated:
 
-lambda_i(V, Q) = sigmoid(F_I([LN(v_i), pool(LN(V)), pool(LN(Q))])).
+$$
+\lambda_i(V,Q) = \sigma\!\left(F_I\!\left[\operatorname{LN}(v_i),\operatorname{pool}(\operatorname{LN}(V)),\operatorname{pool}(\operatorname{LN}(Q))\right]\right).
+$$
 
-The final visual representation and downstream multimodal sequence are
+The final visual representation is:
 
-V'_i = V_i + lambda_i(V, Q) R_i
-X_LLM = [V'; H].
+$$
+V'_i = V_i + \lambda_i(V,Q)R_i.
+$$
+
+The downstream language model receives:
+
+$$
+X_{\mathrm{LLM}} = [V';H].
+$$
 
 This gives ScanFlow two forms of adaptivity:
 
-spatial adaptivity: each visual token receives its own residual and intensity value;
+- **Spatial adaptivity:** each visual token receives its own residual and intensity value.
+- **Reasoning-intensity adaptivity:** the update strength depends on the image and question.
 
-reasoning-intensity adaptivity: the update strength depends on the image and question.
+The visual update is computed only after the complete reasoning sequence is generated. It therefore does not alter the recurrent trajectory $H$ and does not introduce a temporal visual-memory update.
 
-The visual update is computed only after the full reasoning sequence is generated. It therefore does not alter the recurrent trajectory H and does not introduce a temporal visual-memory update.
+## Architecture progression
 
-Architecture progression
+| Variant | Downstream representation | Role in this repository |
+| --- | --- | --- |
+| Plan-1 Parallel | $[V;H]$ | Historical baseline preserved under `baselines/plan1_parallel/` |
+| ScanFlow | $[V + \lambda_i(V,Q)R;H]$ | Final architecture in this repository |
+| ScanFlow Pro | $[M^T;H]$ with stepwise perception updates | Separate temporal architecture; not included here |
 
-Variant
+Plan-1 Parallel is retained to document the architectural progression. It is not the active ScanFlow runtime.
 
-Downstream representation
+## Repository layout
 
-Role in this repository
-
-Plan-1 Parallel
-
-[V; H]
-
-Historical baseline preserved under baselines/plan1_parallel/
-
-ScanFlow
-
-[V + lambda_i(V,Q)R; H]
-
-Final architecture in this repository
-
-ScanFlow Pro
-
-[M^T; H] with stepwise perception updates
-
-Separate temporal architecture; not included here
-
-Plan-1 Parallel is retained to make the architectural progression reproducible. It is not the active ScanFlow runtime.
-
-Repository layout
-
+```text
 .
-├── modelings/scanflow/             # Hugging Face / training-side ScanFlow model code
-├── baselines/plan1_parallel/       # Earlier Plan-1 Parallel model and vLLM code
+├── modelings/scanflow/             # Hugging Face and training-side ScanFlow model code
+├── baselines/plan1_parallel/       # Earlier Plan-1 Parallel modeling and vLLM code
 ├── DeepSeek-OCR-2/                 # Vendored and modified DeepSeek-OCR2 runtime
 ├── ms-swift/                       # Vendored and modified MS-Swift training framework
 ├── dataloader.py                   # Evaluation dataset loading
@@ -84,105 +75,113 @@ Repository layout
 ├── run_scanflowpro_v2_evaluation.slurm
 ├── requirements-training.txt
 ├── requirements-evaluation.txt
+├── .env.example
 ├── ENVIRONMENT.md
 └── THIRD_PARTY_NOTICES.md
+```
 
-The filenames scanflow_pro_deepencoder.py, scanflow_pro_deepseek_ocr2.py, and several SCANFLOW_PRO_* environment variables are retained as historical compatibility identifiers. In this repository those files implement the final ScanFlow architecture above. The temporal ScanFlow Pro architecture is not present.
+The filenames `scanflow_pro_deepencoder.py` and `scanflow_pro_deepseek_ocr2.py`, along with several `SCANFLOW_PRO_*` environment variables, are retained as historical compatibility identifiers. In this repository, those files implement the final ScanFlow architecture described above. The temporal ScanFlow Pro architecture is not included.
 
-SCANFLOW_PRO_V4=1 is also retained in some scripts because the patched MS-Swift template uses that legacy flag to reserve N + T image-token positions. It does not enable a V4 visual-memory update.
+`SCANFLOW_PRO_V4=1` is retained in some scripts because the patched MS-Swift template uses that legacy flag to reserve $N+T$ image-token positions. It does not enable the V4 visual-memory architecture.
 
-Installation
+## Installation
 
-Training and vLLM evaluation use different dependency stacks. Create separate environments rather than installing both requirement files into one environment.
+Training and vLLM evaluation use different dependency stacks. Create separate environments instead of installing both requirement files into the same environment.
 
-Training environment
+### Training environment
 
+```bash
 python -m venv .venv-training
 source .venv-training/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-training.txt
-export PYTHONPATH="$PWD/ms-swift:$PYTHONPATH"
+export PYTHONPATH="$PWD/ms-swift:${PYTHONPATH:-}"
+```
 
-Evaluation environment
+### Evaluation environment
 
+```bash
 python -m venv .venv-evaluation
 source .venv-evaluation/bin/activate
 python -m pip install --upgrade pip
 python -m pip install -r requirements-evaluation.txt
+```
 
-Alliance/Compute Canada users should follow the module and wheelhouse instructions in ENVIRONMENT.md.
+Alliance/Compute Canada users should follow the module and wheelhouse guidance in [`ENVIRONMENT.md`](ENVIRONMENT.md).
 
-Data
+## Data
 
 Datasets are intentionally excluded from version control. The current loaders support:
 
-ChartQA;
+- ChartQA
+- ChartQAPro
+- ChartBench
+- SalChartQA, including ordered scanpath supervision
 
-ChartQAPro;
+Place datasets under `datasets/`, or provide the dataset root through the applicable command-line option or environment variable. Users are responsible for obtaining each dataset under its original license and terms.
 
-ChartBench; and
-
-SalChartQA, including ordered scanpath supervision.
-
-Place datasets under datasets/ or provide the dataset root through the applicable command-line option or environment variable. Users are responsible for obtaining each dataset under its original terms.
-
-Training
+## Training
 
 ScanFlow representation training starts from the trained recurrent Plan-1 representation and initializes only the new residual cross-attention and dynamic-intensity modules. The intended reset policy is:
 
+```bash
 export SCANFLOW_RESET_NEW_PARAMS=0
 export SCANFLOW_V2_RESET_NEW_PARAMS=1
 export SCANFLOW_V2_INITIAL_INTENSITY=0.001
+```
 
-The recurrent reasoning path is preserved, while the new intensity head initially produces lambda_i = 0.001.
+This preserves the recurrent reasoning path while initializing the new intensity head so that $\lambda_i \approx 0.001$.
 
-Before submitting train_scanflowpro_v2.slurm, configure the account, environment, input model, dataset, and output paths for the target cluster. The checked-in Slurm file records the research configuration used for the draft release.
+Before submitting `train_scanflowpro_v2.slurm`, configure the cluster account, environment, input model, dataset, and output paths. The checked-in Slurm file records the research configuration used for this draft release.
 
-Evaluation and analysis
+## Evaluation and analysis
 
-run_scanflowpro_v2_evaluation.py supports benchmark evaluation and two architecture-focused analyses.
+`run_scanflowpro_v2_evaluation.py` supports benchmark evaluation and two architecture-focused analyses.
 
-Dynamic reasoning-intensity distribution
+### Dynamic reasoning-intensity distribution
 
-The evaluator records the tokenwise lambda_i(V,Q) distribution for each sample and aggregates its statistics by benchmark. This is intended to test whether harder question sets elicit stronger reasoning-conditioned perception updates.
+The evaluator records the tokenwise $\lambda_i(V,Q)$ distribution for each sample and aggregates its statistics by benchmark. This analysis tests whether harder question sets elicit stronger reasoning-conditioned perception updates.
 
-Reasoning-modified perception
+### Reasoning-modified perception
 
-The analysis captures:
+The evaluator can capture:
 
-original visual tokens V;
+- original visual tokens $V$;
+- reasoning residual $R$;
+- intensity map $\lambda_i(V,Q)$;
+- effective update $\lambda_iR_i$;
+- modified visual tokens $V'$; and
+- projected original and modified tokens received by the language model.
 
-reasoning residual R;
+Supported visualizations include:
 
-intensity map lambda_i(V,Q);
-
-effective update lambda_i R_i;
-
-modified visual tokens V'; and
-
-projected original and modified tokens received by the language model.
-
-Supported visualizations include update-magnitude heatmaps, relative-L2 change, cosine-direction change, shared-PCA pseudo-images, and overlays on the original chart.
+- update-magnitude heatmaps;
+- relative-$L_2$ change maps;
+- cosine-direction change maps;
+- shared-PCA pseudo-images; and
+- spatial overlays on the original chart.
 
 Example single-dataset evaluation:
 
+```bash
 python run_scanflowpro_v2_evaluation.py \
   --datasets ChartQA \
   --model-name /path/to/scanflow-model \
   --datasets-root /path/to/datasets \
   --output-dir eval_outputs/chartqa \
   --v2-analysis
+```
 
-To evaluate another benchmark independently, keep only that benchmark after --datasets.
+To evaluate another benchmark independently, keep only that benchmark after `--datasets`.
 
-Model weights
+## Model weights
 
 Model checkpoints, optimizer state, and trainer state are excluded because they are multi-gigabyte artifacts and are not appropriate for ordinary Git storage. A model-hosting or archival link can be added here when weights are released.
 
-Acknowledgements and licensing
+## Acknowledgements and licensing
 
-ScanFlow builds on CueFlow, DeepSeek-OCR2, MS-Swift, Hugging Face Transformers/PEFT, and vLLM. See THIRD_PARTY_NOTICES.md and the license files retained in the vendored directories.
+ScanFlow builds on CueFlow, DeepSeek-OCR2, MS-Swift, Hugging Face Transformers and PEFT, and vLLM. See [`THIRD_PARTY_NOTICES.md`](THIRD_PARTY_NOTICES.md) and the license files retained in the vendored directories.
 
-Status
+## Status
 
 This repository currently represents a draft code release. Paths, installation automation, model hosting, and final experimental results may be refined before an archival release.
